@@ -204,7 +204,7 @@ stages:
             inputs:
               azureSubscription: 'Azure-access'
               AuthenticationType: 'server'
-              ServerName: '$(ServerName)'
+              ServerName: '$(databaseServerName)'
               DatabaseName: '$(DatabaseName)'
               SqlUsername: '$(SqlUsername)'
               SqlPassword: '$(SqlPassword)'
