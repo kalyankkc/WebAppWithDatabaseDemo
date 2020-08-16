@@ -1,20 +1,13 @@
-parameters:
-  - name: sonar
-    displayName: Do you want sonar to analyze for this build?
-    default: true
-    values:
-      - true
-      - false
-    
+
 trigger:
  branches:
-   exclude:
+   include:
      - master
  paths:
    exclude:
      - docs/*
      - README.md
-     - azure-pipelines.yaml
+     - azure-pipelines.yml
 variables:
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
@@ -32,6 +25,14 @@ stages:
     pool: 
       vmImage: windows-latest
     steps:
+
+    - task: DotNetCoreCLI@2
+      displayName: Restore
+      inputs:
+        command: restore
+        projects: '**/WebApp.csproj'
+      enabled: true
+
     - powershell: |
        Write-Host "Hello World"
        $paths = Get-ChildItem -include *.csproj -Recurse
@@ -46,33 +47,25 @@ stages:
            $node.AppendChild($child)
            $doc.Save($path)
        }
+      workingDirectory: WebApp
       displayName: 'PS : Add Project GUID'
-      
-    - task: DotNetCoreCLI@2
-      displayName: Restore
+    - task: SonarCloudPrepare@1
+      displayName: sonarcloud Preparations
       inputs:
-        command: restore
-        projects: '**/*.sln'
+        SonarCloud: 'sonarcloud'
+        organization: 'devops-1'
+        scannerMode: 'MSBuild'
+        projectKey: 'pkey-1'
+        projectName: 'p-1'
+        extraProperties: |
+         sonar.cs.opencover.reportsPaths=$(Build.SourcesDirectory)/TestResults/Coverage/coverage.opencover.xml
+         sonar.exclusions=**/wwwroot/lib/**/*
       enabled: true
-
-    - ${{ if eq(parameters.sonar, true) }}:
-      - task: SonarCloudPrepare@1
-        displayName: sonarcloud Preparations
-        inputs:
-          SonarCloud: 'sonarcloud'
-          organization: 'az400-trng'
-          scannerMode: 'MSBuild'
-          projectKey: 'shopping'
-          projectName: 'My Shopping Application'
-          extraProperties: |
-           sonar.cs.opencover.reportsPaths=$(Build.SourcesDirectory)/TestResults/Coverage/coverage.opencover.xml
-           sonar.exclusions=**/wwwroot/lib/**/*
-        enabled: true
 
     - task: DotNetCoreCLI@2
       displayName: Build 
       inputs:
-        projects: '**/*.sln'
+        projects: '**/WebApp.csproj'
       enabled: true
 
     - task: DotNetCoreCLI@2
@@ -88,29 +81,27 @@ stages:
       inputs:
         command: 'test'
         arguments: '--configuration $(buildConfiguration) /p:CollectCoverage=true /p:CoverletOutputFormat="cobertura%2copencover" /p:CoverletOutput=$(Build.SourcesDirectory)/TestResults/Coverage/'
-        projects: '$(TestPath)'
+        projects: '**/*UnitTest*.csproj'
       enabled: true
     
     - script: |
         reportgenerator -reports:$(Build.SourcesDirectory)/**/coverage.cobertura.xml -targetdir:$(Build.SourcesDirectory)/CodeCoverage -reporttypes:HtmlInline_AzurePipelines
       displayName: 'Create code coverage report'
+      enabled: false
+    
+    - task: SonarCloudAnalyze@1
       enabled: true
-    - ${{ if eq(parameters.sonar, true) }}:    
-      - task: SonarCloudAnalyze@1
-        enabled: true
    
-    - ${{ if eq(parameters.sonar, true) }}:
-      - task: SonarCloudPublish@1
-        inputs:
-          pollingTimeoutSec: '300'
-        enabled: true
+    - task: SonarCloudPublish@1
+      inputs:
+        pollingTimeoutSec: '300'
+      enabled: true
 
-    - ${{ if eq(parameters.sonar, true) }}:
-      - task: sonarcloud-buildbreaker@2
-        inputs:
-          SonarCloud: 'sonarcloud'
-          organization: 'az400-trng'
-        enabled: true
+    - task: sonarcloud-buildbreaker@2
+      inputs:
+        SonarCloud: 'sonarcloud'
+        organization: 'devops-1'
+      enabled: true
     
     - task: PublishCodeCoverageResults@1
       displayName: 'Publish code coverage report'
@@ -128,18 +119,26 @@ stages:
         zipAfterPublish: True
       enabled: true
 
-    - task: CopyFiles@2
-      inputs:
-        SourceFolder: 'Arm Templates'
-        Contents: '**'
-        TargetFolder: '$(build.artifactstagingdirectory)'
-      enabled: true
     - task: PublishBuildArtifacts@1
       displayName: 'Publish Artifact'
       inputs:
         artifactName: webapp
         PathtoPublish: '$(build.artifactstagingdirectory)'
       enabled: true
+    
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: 'Arm Templates'
+        Contents: '**'
+        TargetFolder: '$(Build.TemplatesDirectory)'
+      enabled: false
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.TemplatesDirectory)'
+        ArtifactName: 'ArmTemplates'
+        publishLocation: 'Container'
+      enabled: false
 
   - job: Database
     dependsOn: Webapp
@@ -180,27 +179,25 @@ stages:
               azureSubscription: 'Azure-access' #provide your subscription details
               resourceGroupName: '$(resourceGroupName)'
               location: '$(location)'
-              csmFile: '$(Pipeline.Workspace)/**/windows-webapp-sql-template.json'
-              overrideParameters: '-webAppName $(WebAppName) -hostingPlanName $(AppServicePlan) -appInsightsLocation $(location) -sku "S1 Standard" -databaseServerName $(databaseServerName) -databaseUsername $(SqlUsername) -databasePassword $(SqlPassword) -databaseLocation $(location) -databaseName $(DatabaseName) -databaseEdition "Basic"'
+              csmFile: '$(Pipeline.Workspace)/ArmTemplates/windows-webapp-sql-template.json'
+              overrideParameters: '-webAppName $(WebAppName) -hostingPlanName test-plan -appInsightsLocation "Central US" -sku "F1 Free" -databaseServerName $(databaseServerName) -databaseUsername $(SqlUsername) -databasePassword $(SqlPassword) -databaseLocation "East US" -databaseName $(DatabaseName) -databaseEdition "Basic"'
             enabled: false
-          
+           
           - task: AzureCLI@1
-            inputs:
+            inputs: 
               azureSubscription: 'Azure-access'
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
               inlineScript: |
-                call az group create --name $(resourceGroupName) --location $(location)
+                 call az group create --name $(resourceGroupName) --location $(location)
                 
-                call az appservice plan create -g $(resourceGroupName) -n $(AppServicePlan) --sku S1 -l $(location)
+                 call az appservice plan create -g $(resourceGroupName) -n $(AppServicePlan) --sku S1 -l $(location)
                  
-                call az webapp create -g $(resourceGroupName) -p $(AppServicePlan) -n $(WebAppName)
+                 call az webapp create -g $(resourceGroupName) -p $(AppServicePlan) -n $(WebAppName)
                 
+                 call az sql server create -l $(location) -g $(resourceGroupName) -n $(databaseServerName) -u $(SqlUsername) -p $(SqlPassword)
                 
-                
-                call az sql server create -l $(location) -g $(resourceGroupName) -n $(databaseServerName) -u $(SqlUsername) -p $(SqlPassword)
-                
-                call az sql db create -g $(resourceGroupName) -s $(databaseServerName) -n $(DatabaseName) --service-objective S0
+                 call az sql db create -g $(resourceGroupName) -s $(databaseServerName) -n $(DatabaseName) --service-objective S0
 
           - task: SqlAzureDacpacDeployment@1
             displayName: 'Azure SQL DacpacTask'
@@ -214,6 +211,10 @@ stages:
               deployType: 'DacpacTask'
               DeploymentAction: 'Publish'
               DacpacFile: '$(Pipeline.Workspace)/**/*.dacpac'
+             # IpDetectionMethod: 'IPAddressRange'
+             # StartIpAddress: '34.72.142.230'
+             # EndIpAddress: '34.72.142.230'
+             # DeleteFirewallRule: false
             enabled: true
 
           - task: AzureRmWebAppDeployment@4
@@ -228,4 +229,21 @@ stages:
               DeploymentType: 'webDeploy'
               RemoveAdditionalFilesFlag: true
               enableXmlVariableSubstitution: true
+            enabled: true
+
+          
+          - task: AzureAppServiceSettings@1
+            inputs:
+              azureSubscription: 'Azure-access'
+              appName: '$(WebAppName)'
+              resourceGroupName: '$(resourceGroupName)'
+              connectionStrings: |
+                [
+                   {
+                    "name": "WebAppContext", #please check your connection string name in application
+                    "value": "Server=tcp:$(ServerName),1433;Initial Catalog=$(DatabaseName);User ID=$(SqlUsername);Password=$(SqlPassword);",
+                    "type": "SQLServer",
+                    "slotSetting": false
+                   }
+                ]
             enabled: true
