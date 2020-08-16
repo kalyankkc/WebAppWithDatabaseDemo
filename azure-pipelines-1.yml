@@ -1,0 +1,231 @@
+parameters:
+  - name: sonar
+    displayName: Do you want sonar to analyze for this build?
+    default: true
+    values:
+      - true
+      - false
+    
+trigger:
+ branches:
+   exclude:
+     - master
+ paths:
+   exclude:
+     - docs/*
+     - README.md
+     - azure-pipelines.yaml
+variables:
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+  RestoreAndBuildPath: '**/*.csproj'
+  TestPath: '**/*[Tt]ests/*.csproj'
+  solution: '**/*.sln'
+  sqlPath: '**/*.sqlproj'
+
+stages:
+- stage: Build
+  displayName: Build stage
+  jobs:
+  - job: Webapp
+    displayName: Building the app
+    pool: 
+      vmImage: windows-latest
+    steps:
+    - powershell: |
+       Write-Host "Hello World"
+       $paths = Get-ChildItem -include *.csproj -Recurse
+       foreach($pathobject in $paths) 
+       {
+           $path = $pathobject.fullname
+           $doc = New-Object System.Xml.XmlDocument
+           $doc.Load($path)
+           $child = $doc.CreateElement("ProjectGuid")
+           $child.InnerText = [guid]::NewGuid().ToString().ToUpper()
+           $node = $doc.SelectSingleNode("//Project/PropertyGroup")
+           $node.AppendChild($child)
+           $doc.Save($path)
+       }
+      displayName: 'PS : Add Project GUID'
+      
+    - task: DotNetCoreCLI@2
+      displayName: Restore
+      inputs:
+        command: restore
+        projects: '**/*.sln'
+      enabled: true
+
+    - ${{ if eq(parameters.sonar, true) }}:
+      - task: SonarCloudPrepare@1
+        displayName: sonarcloud Preparations
+        inputs:
+          SonarCloud: 'sonarcloud'
+          organization: 'az400-trng'
+          scannerMode: 'MSBuild'
+          projectKey: 'shopping'
+          projectName: 'My Shopping Application'
+          extraProperties: |
+           sonar.cs.opencover.reportsPaths=$(Build.SourcesDirectory)/TestResults/Coverage/coverage.opencover.xml
+           sonar.exclusions=**/wwwroot/lib/**/*
+        enabled: true
+
+    - task: DotNetCoreCLI@2
+      displayName: Build 
+      inputs:
+        projects: '**/*.sln'
+      enabled: true
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Install ReportGenerator'
+      inputs:
+        command: custom
+        custom: tool
+        arguments: 'install --global dotnet-reportgenerator-globaltool'
+      enabled: true
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Run tests'
+      inputs:
+        command: 'test'
+        arguments: '--configuration $(buildConfiguration) /p:CollectCoverage=true /p:CoverletOutputFormat="cobertura%2copencover" /p:CoverletOutput=$(Build.SourcesDirectory)/TestResults/Coverage/'
+        projects: '$(TestPath)'
+      enabled: true
+    
+    - script: |
+        reportgenerator -reports:$(Build.SourcesDirectory)/**/coverage.cobertura.xml -targetdir:$(Build.SourcesDirectory)/CodeCoverage -reporttypes:HtmlInline_AzurePipelines
+      displayName: 'Create code coverage report'
+      enabled: true
+    - ${{ if eq(parameters.sonar, true) }}:    
+      - task: SonarCloudAnalyze@1
+        enabled: true
+   
+    - ${{ if eq(parameters.sonar, true) }}:
+      - task: SonarCloudPublish@1
+        inputs:
+          pollingTimeoutSec: '300'
+        enabled: true
+
+    - ${{ if eq(parameters.sonar, true) }}:
+      - task: sonarcloud-buildbreaker@2
+        inputs:
+          SonarCloud: 'sonarcloud'
+          organization: 'az400-trng'
+        enabled: true
+    
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Publish code coverage report'
+      inputs:
+        codeCoverageTool: 'cobertura'
+        summaryFileLocation: '$(Build.SourcesDirectory)/**/coverage.cobertura.xml'
+      enabled: true
+      
+    - task: DotNetCoreCLI@2
+      displayName: Publish
+      inputs:
+        command: publish
+        publishWebProjects: True
+        arguments: '--configuration $(buildConfiguration) --output $(build.artifactstagingdirectory)'
+        zipAfterPublish: True
+      enabled: true
+
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: 'Arm Templates'
+        Contents: '**'
+        TargetFolder: '$(build.artifactstagingdirectory)'
+      enabled: true
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifact'
+      inputs:
+        artifactName: webapp
+        PathtoPublish: '$(build.artifactstagingdirectory)'
+      enabled: true
+
+  - job: Database
+    dependsOn: Webapp
+    pool: 
+      vmImage: windows-latest
+    steps:
+    - task: MSBuild@1
+      displayName: Build solution WebApp.Database.sqlproj
+      inputs:
+        solution: '**/*.sqlproj'
+        msbuildArguments: '/p:OutDir=$(Build.ArtifactStagingDirectory)'
+      enabled: true
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifact: DacPacFile'
+      inputs:
+        ArtifactName: DacPacFile
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+      enabled: true
+      
+- stage: prod
+  displayName: 'Deploy to prod'
+  dependsOn: Build
+  jobs:
+  - deployment: Production
+    pool: 
+      vmImage: windows-latest
+    variables:
+    - group: 'Release'
+    environment: 'Production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureResourceGroupDeployment@2
+            displayName: 'Azure Deployment:Create Or Update Resource Group'
+            inputs:
+              azureSubscription: 'Azure-access' #provide your subscription details
+              resourceGroupName: '$(resourceGroupName)'
+              location: '$(location)'
+              csmFile: '$(Pipeline.Workspace)/**/windows-webapp-sql-template.json'
+              overrideParameters: '-webAppName $(WebAppName) -hostingPlanName $(AppServicePlan) -appInsightsLocation $(location) -sku "S1 Standard" -databaseServerName $(databaseServerName) -databaseUsername $(SqlUsername) -databasePassword $(SqlPassword) -databaseLocation $(location) -databaseName $(DatabaseName) -databaseEdition "Basic"'
+            enabled: false
+          
+          - task: AzureCLI@1
+            inputs:
+              azureSubscription: 'Azure-access'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                call az group create --name $(resourceGroupName) --location $(location)
+                
+                call az appservice plan create -g $(resourceGroupName) -n $(AppServicePlan) --sku S1 -l $(location)
+                 
+                call az webapp create -g $(resourceGroupName) -p $(AppServicePlan) -n $(WebAppName)
+                
+                
+                
+                call az sql server create -l $(location) -g $(resourceGroupName) -n $(databaseServerName) -u $(SqlUsername) -p $(SqlPassword)
+                
+                call az sql db create -g $(resourceGroupName) -s $(databaseServerName) -n $(DatabaseName) --service-objective S0
+
+          - task: SqlAzureDacpacDeployment@1
+            displayName: 'Azure SQL DacpacTask'
+            inputs:
+              azureSubscription: 'Azure-access'
+              AuthenticationType: 'server'
+              ServerName: '$(ServerName)'
+              DatabaseName: '$(DatabaseName)'
+              SqlUsername: '$(SqlUsername)'
+              SqlPassword: '$(SqlPassword)'
+              deployType: 'DacpacTask'
+              DeploymentAction: 'Publish'
+              DacpacFile: '$(Pipeline.Workspace)/**/*.dacpac'
+            enabled: true
+
+          - task: AzureRmWebAppDeployment@4
+            inputs:
+              ConnectionType: 'AzureRM'
+              azureSubscription: 'Azure-access'
+              appType: 'webApp'
+              WebAppName: '$(WebAppName)'
+              packageForLinux: '$(Pipeline.Workspace)/**/*.zip'
+              AppSettings: '-ASPNETCORE_ENVIRONMENT Production'
+              enableCustomDeployment: true
+              DeploymentType: 'webDeploy'
+              RemoveAdditionalFilesFlag: true
+              enableXmlVariableSubstitution: true
+            enabled: true
