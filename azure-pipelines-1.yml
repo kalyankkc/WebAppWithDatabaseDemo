@@ -185,7 +185,7 @@ stages:
            
           - task: AzureCLI@1
             inputs: 
-              azureSubscription: 'serviceconnection-1'
+              azureSubscription: 'service connection-2'
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
               inlineScript: |
@@ -202,7 +202,7 @@ stages:
           - task: SqlAzureDacpacDeployment@1
             displayName: 'Azure SQL DacpacTask'
             inputs:
-              azureSubscription: 'serviceconnection-1'
+              azureSubscription: 'service connection-2'
               AuthenticationType: 'server'
               ServerName: '$(databaseServerName)'
               DatabaseName: '$(DatabaseName)'
@@ -220,7 +220,7 @@ stages:
           - task: AzureRmWebAppDeployment@4
             inputs:
               ConnectionType: 'AzureRM'
-              azureSubscription: 'serviceconnection-1'
+              azureSubscription: 'service connection-2'
               appType: 'webApp'
               WebAppName: '$(WebAppName)'
               packageForLinux: '$(Pipeline.Workspace)/**/*.zip'
@@ -234,7 +234,7 @@ stages:
           
           - task: AzureAppServiceSettings@1
             inputs:
-              azureSubscription: 'serviceconnection-1'
+              azureSubscription: 'service connection-2'
               appName: '$(WebAppName)'
               resourceGroupName: '$(resourceGroupName)'
               connectionStrings: |
