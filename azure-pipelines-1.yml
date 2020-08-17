@@ -241,7 +241,7 @@ stages:
                 [
                    {
                     "name": "WebAppContext", #please check your connection string name in application
-                    "value": "Server=tcp:$(databaseServerName),1433;Initial Catalog=$(DatabaseName);User ID=$(SqlUsername);Password=$(SqlPassword);",
+                    "value": "Server=tcp:$(ServerName),1433;Initial Catalog=$(DatabaseName);User ID=$(SqlUsername);Password=$(SqlPassword);",
                     "type": "SQLServer",
                     "slotSetting": false
                    }
