@@ -233,7 +233,7 @@ stages:
           
           - task: AzureAppServiceSettings@1
             inputs:
-              azureSubscription: 'sc-1'
+              azureSubscription: 'service connection-2'
               appName: 'Dotnetcore-APP-2'
               resourceGroupName: 'kalyan-2'
               connectionStrings: |
