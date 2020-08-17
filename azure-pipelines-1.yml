@@ -230,5 +230,28 @@ stages:
               RemoveAdditionalFilesFlag: true
               enableXmlVariableSubstitution: true
             enabled: true
+          
+          - task: AzureAppServiceSettings@1
+            inputs:
+              azureSubscription: 'sc-1'
+              appName: 'Dotnetcore-APP-2'
+              resourceGroupName: 'kalyan-2'
+              connectionStrings: |
+                [
+                  {
+                    "name": "CatalogConnection",
+                    "value": "Server=tcp:dbserverone-1.database.windows.net,1433;Initial Catalog=kalyan;User ID=kalyan;Password=Welcome123;",
+                    "type": "SQLServer",
+                    "slotSetting": false
+
+                  },
+                  {
+                    "name": "IdentityConnection",
+                    "value": "Server=tcp:dbserverone-1.database.windows.net,1433;Initial Catalog=kalyan;User ID=kalyan;Password=Welcome123;",
+                    "type": "SQLServer",
+                    "slotSetting": false
+
+                  }
+                ]
 
           
