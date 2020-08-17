@@ -87,7 +87,7 @@ stages:
     - script: |
         reportgenerator -reports:$(Build.SourcesDirectory)/**/coverage.cobertura.xml -targetdir:$(Build.SourcesDirectory)/CodeCoverage -reporttypes:HtmlInline_AzurePipelines
       displayName: 'Create code coverage report'
-      enabled: false
+      enabled: true
     
     - task: SonarCloudAnalyze@1
       enabled: true
