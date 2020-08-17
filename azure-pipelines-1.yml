@@ -204,7 +204,7 @@ stages:
             inputs:
               azureSubscription: 'service connection-2'
               AuthenticationType: 'server'
-              ServerName: '$(databaseServerName)'
+              ServerName: '$(ServerName)'
               DatabaseName: '$(DatabaseName)'
               SqlUsername: '$(SqlUsername)'
               SqlPassword: '$(SqlPassword)'
@@ -232,18 +232,3 @@ stages:
             enabled: true
 
           
-          - task: AzureAppServiceSettings@1
-            inputs:
-              azureSubscription: 'service connection-2'
-              appName: '$(WebAppName)'
-              resourceGroupName: '$(resourceGroupName)'
-              connectionStrings: |
-                [
-                   {
-                    "name": "WebAppContext", #please check your connection string name in application
-                    "value": "Server=tcp:$(ServerName),1433;Initial Catalog=$(DatabaseName);User ID=$(SqlUsername);Password=$(SqlPassword);",
-                    "type": "SQLServer",
-                    "slotSetting": false
-                   }
-                ]
-            enabled: true
