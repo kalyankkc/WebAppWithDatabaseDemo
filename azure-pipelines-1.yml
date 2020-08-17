@@ -81,7 +81,7 @@ stages:
       inputs:
         command: 'test'
         arguments: '--configuration $(buildConfiguration) /p:CollectCoverage=true /p:CoverletOutputFormat="cobertura%2copencover" /p:CoverletOutput=$(Build.SourcesDirectory)/TestResults/Coverage/'
-        projects: '**/*UnitTest*.csproj'
+        projects: '$(TestPath)'
       enabled: true
     
     - script: |
